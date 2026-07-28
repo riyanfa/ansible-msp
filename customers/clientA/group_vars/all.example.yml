@@ -19,3 +19,9 @@ mgmt_sudo_nopasswd: true
 
 # Connection specifics for this customer go here too, e.g.:
 # ansible_ssh_common_args: '-o ProxyJump=svc_ansible@bastion.clienta.com'
+
+# --- How this control VM connects to MANAGED hosts ---------------------------
+# Without these, Ansible connects as the control VM's local user with no key
+# and every managed host rejects it. Key path = the one setup.sh generated.
+ansible_user: "{{ mgmt_user }}"
+ansible_ssh_private_key_file: "~/.ssh/clientA_ansible"
