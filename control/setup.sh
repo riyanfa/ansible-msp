@@ -13,7 +13,8 @@ CUSTOMER="${1:-}"; REPO_URL="${2:-}"
 [ -z "$CUSTOMER" ] || [ -z "$REPO_URL" ] && { sed -n '2,9p' "$0" | sed 's/^# \?//'; exit 1; }
 [ "$(id -u)" -eq 0 ] && { echo "ERROR: run as the ansible user, not root."; exit 1; }
 
-REPO_DIR="$HOME/ansible-msp"
+REPO_DIR="$HOME/ansible-msp"          # public workflow repo (pull-only)
+DATA_DIR="$HOME/customers/$CUSTOMER"  # this customer's data — local ONLY, never in git
 KEY="$HOME/.ssh/${CUSTOMER}_ansible"
 
 echo "== 1/5 packages =="
@@ -31,8 +32,15 @@ if [ -d "$REPO_DIR/.git" ]; then
 else
   git clone -b stable "$REPO_URL" "$REPO_DIR"
 fi
-[ -d "$REPO_DIR/customers/$CUSTOMER" ] || \
-  echo "WARNING: customers/$CUSTOMER/ not in repo yet — create and push it."
+echo "== 2b/5 customer data dir (local, outside the clone) =="
+if [ -d "$DATA_DIR" ]; then
+  echo "exists: $DATA_DIR"
+else
+  mkdir -p "$DATA_DIR/group_vars"
+  cp "$REPO_DIR/customers/clientA/group_vars/all.example.yml" "$DATA_DIR/group_vars/all.yml"
+  cp "$REPO_DIR/customers/clientA/onboarding.example.ini" "$DATA_DIR/onboarding.ini"
+  printf '# Hosts under management. No creds — this VM holds the key.\n[managed]\n' > "$DATA_DIR/managed.ini"
+fi
 
 echo "== 3/5 management key =="
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
@@ -57,15 +65,15 @@ chmod +x "$REPO_DIR/.git/hooks/pre-commit"
 cat <<EOF
 
 Done. This VM manages: $CUSTOMER
+  workflow (pulled):   $REPO_DIR
+  customer data:       $DATA_DIR   <-- local only. BACK THIS DIR UP.
 
 Next:
-  1. Put this PUBLIC key into customers/$CUSTOMER/group_vars/all.yml
-     (mgmt_authorized_keys), with this VM's egress IP in control_node_ips:
-
-     $(cat "$KEY.pub")
-
-  2. Commit + push that from your workstation (control VMs are read-only).
-  3. Onboard hosts:
+  1. Edit $DATA_DIR/group_vars/all.yml:
+     - mgmt_authorized_keys: $(cat "$KEY.pub")
+     - control_node_ips: this VM's egress IP (ssh <host> 'echo \$SSH_CLIENT')
+  2. Add hosts to $DATA_DIR/onboarding.ini, then:
      cd $REPO_DIR
-     ansible-playbook -i customers/$CUSTOMER/onboarding.ini playbooks/onboard.yml
+     ansible-playbook -i $DATA_DIR/onboarding.ini playbooks/onboard.yml
+     ansible-playbook -i $DATA_DIR/managed.ini    playbooks/verify.yml
 EOF
