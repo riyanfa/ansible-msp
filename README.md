@@ -30,8 +30,8 @@ your admin node is the minimum.
 Boot a VM, configure its VPN/bastion access to the customer, then:
 
 ```bash
-git clone https://github.com/riyanfa/ansible-customer-patching ~/ansible-msp
-~/ansible-msp/control/setup.sh clientB https://github.com/riyanfa/ansible-customer-patching
+git clone https://github.com/riyanfa/ansible-msp ~/ansible-msp
+~/ansible-msp/control/setup.sh clientB https://github.com/riyanfa/ansible-msp
 ```
 
 `setup.sh` installs ansible, creates `~/customers/clientB/` from the example
