@@ -38,6 +38,10 @@ if [ -d "$DATA_DIR" ]; then
 else
   mkdir -p "$DATA_DIR/group_vars"
   cp "$REPO_DIR/customers/clientA/group_vars/all.example.yml" "$DATA_DIR/group_vars/all.yml"
+  # rewrite example's clientA references to THIS customer (esp. the key path —
+  # a stale path here means ssh offers the wrong key and every host rejects it)
+  sed -i "s|clientA_ansible|${CUSTOMER}_ansible|g; s|ansible-clientA|ansible-${CUSTOMER}|g" \
+    "$DATA_DIR/group_vars/all.yml"
   cp "$REPO_DIR/customers/clientA/onboarding.example.ini" "$DATA_DIR/onboarding.ini"
   printf '# Hosts under management. No creds — this VM holds the key.\n[managed]\n' > "$DATA_DIR/managed.ini"
 fi
