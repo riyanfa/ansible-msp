@@ -6,7 +6,7 @@ customer data lives on each control VM's disk and is never committed anywhere.
 
 ```
 On the control VM:
-~/ansible-msp/               this repo, auto-pulled (stable branch)
+~/ansible-msp/               this repo, auto-pulled (main branch)
   playbooks/
     onboard.yml     set up a new host (account + restricted key + sudo)
     verify.yml      prove the control VM can manage the hosts (read-only)
@@ -30,7 +30,7 @@ your admin node is the minimum.
 Boot a VM, configure its VPN/bastion access to the customer, then:
 
 ```bash
-git clone -b stable <this repo> ~/ansible-msp
+git clone <this repo> ~/ansible-msp
 ~/ansible-msp/control/setup.sh clientB <this repo's url>
 ```
 
@@ -71,19 +71,16 @@ patch.yml options: `-e reboot_if_required=true`, `-e update_batch=1` (serial),
 
 ## Workflow updates → control VMs
 
-Control VMs auto-pull the **stable** branch every 30 min (`control/repo-sync.*`).
-Changes flow through a staging gate:
-
-```
-push → main → test on ONE control VM → git push origin main:stable → all VMs
-```
+Control VMs auto-pull **main** every 30 min (`control/repo-sync.*`). There is
+no staging branch: **whatever lands on main reaches every control VM within
+half an hour.** Test with `--check --diff` against one customer before pushing.
 
 ⚠️ **This repo is public and control VMs execute what they pull as root on
 customer fleets.** That makes repo security operational security:
 
-- Protect `stable` and `main`: no force pushes, no direct pushes from others.
-- 2FA on every account with write access. Never merge external PRs into
-  `stable` without reading every line of the diff.
+- Protect `main`: no force pushes, no direct pushes from others.
+- 2FA on every account with write access. Never merge external PRs
+  without reading every line of the diff.
 - Control VMs pull anonymously (public repo needs no key) and never push.
 - `--ff-only` in the sync means rewritten history is refused, not applied.
 - Never edit anything on a control VM — a failing sync timer means drift;

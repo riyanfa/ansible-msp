@@ -4,7 +4,7 @@
 #   ./setup.sh <customer> <repo_url>
 #   ./setup.sh clientB git@github.com:yourorg/ansible-msp.git
 #
-# Installs ansible+git, clones the repo (stable branch), generates this
+# Installs ansible+git, clones the repo, generates this
 # customer's management key if absent, and enables the repo-sync timer.
 # Idempotent — safe to re-run.
 set -euo pipefail
@@ -26,11 +26,11 @@ else
   echo "ERROR: neither apt nor dnf found."; exit 1
 fi
 
-echo "== 2/5 repo (branch: stable) =="
+echo "== 2/5 repo (branch: main) =="
 if [ -d "$REPO_DIR/.git" ]; then
-  git -C "$REPO_DIR" pull --ff-only origin stable
+  git -C "$REPO_DIR" pull --ff-only origin main
 else
-  git clone -b stable "$REPO_URL" "$REPO_DIR"
+  git clone "$REPO_URL" "$REPO_DIR"
 fi
 echo "== 2b/5 customer data dir (local, outside the clone) =="
 if [ -d "$DATA_DIR" ]; then
