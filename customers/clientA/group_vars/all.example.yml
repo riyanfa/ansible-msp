@@ -1,0 +1,21 @@
+---
+# Copy to all.yml in this folder and fill in. Loads automatically for every
+# host in this customer's inventories.
+customer_name: Client A
+mgmt_user: svc_ansible
+
+# Public half of this customer's key. Private half lives on their control VM.
+#   ssh-keygen -t ed25519 -C "ansible-clientA" -f ~/.ssh/clientA_ansible
+mgmt_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleReplaceMe ansible-clientA"
+
+# IP(s) the customer hosts see when the control VM connects. The key refuses
+# any other source. Confirm with: ssh <host> 'echo $SSH_CLIENT'
+control_node_ips:
+  - "203.0.113.5"
+
+# false = sudo needs a password
+mgmt_sudo_nopasswd: true
+
+# Connection specifics for this customer go here too, e.g.:
+# ansible_ssh_common_args: '-o ProxyJump=svc_ansible@bastion.clienta.com'

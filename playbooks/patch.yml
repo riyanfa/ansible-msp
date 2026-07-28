@@ -1,0 +1,50 @@
+---
+# Applies package updates. Never reboots unless you ask it to.
+#
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/patch.yml
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/patch.yml -e reboot_if_required=true
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/patch.yml -e update_batch=1
+#
+# update_batch: how many hosts at once. 1 = one at a time (safest for a
+# cluster), '100%' = all at once. Default 50%.
+- name: Update system packages
+  hosts: all
+  become: true
+  serial: "{{ update_batch | default('50%') }}"
+
+  tasks:
+    - name: Upgrade all packages (Debian)
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        cache_valid_time: 3600
+        autoremove: true
+      when: ansible_facts['os_family'] == 'Debian'
+      register: deb_upgrade
+
+    - name: Upgrade all packages (RedHat)  # noqa: package-latest
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: true
+        security: "{{ security_only | default(false) | bool }}"
+      when: ansible_facts['os_family'] == 'RedHat'
+      register: rh_upgrade
+
+    - name: Check for outstanding reboot
+      ansible.builtin.include_tasks: tasks/reboot-required.yml
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        msg: Rebooting after patching
+        reboot_timeout: 600
+      when:
+        - reboot_required | bool
+        - reboot_if_required | default(false) | bool
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ 'changed' if (deb_upgrade.changed | default(false) or rh_upgrade.changed | default(false)) else 'already current' }},
+          reboot_required={{ reboot_required }}{{ ' (rebooted)' if (reboot_required | bool and reboot_if_required | default(false) | bool) else '' }}

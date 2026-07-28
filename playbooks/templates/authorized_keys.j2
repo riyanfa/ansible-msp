@@ -1,0 +1,6 @@
+{# Fully managed: remove a key from mgmt_authorized_keys and it disappears
+   from every host on the next run. #}
+# Managed by Ansible — {{ customer_name }}. Manual edits will be overwritten.
+{% for key in mgmt_authorized_keys %}
+from="{{ control_node_ips | join(',') }}",no-agent-forwarding,no-X11-forwarding,no-user-rc {{ key }}
+{% endfor %}

@@ -1,0 +1,29 @@
+# Private keys — filenames only catch some; hooks/pre-commit checks contents.
+id_*
+*_rsa
+*_ecdsa
+*_ed25519
+*_ansible
+*_mgmt
+*.pem
+*.ppk
+*.key
+!*.pub
+
+# Bootstrap creds (key paths) — never commit. group_vars/all.yml IS committed:
+# control VMs receive it via git, and it holds only public keys and IPs.
+customers/*/onboarding.ini
+!customers/*/onboarding.example.ini
+
+# Secrets
+.vault_pass*
+secrets.yml
+
+# Ansible runtime
+*.retry
+.ansible/
+*.log
+
+.DS_Store
+.vscode/
+.idea/

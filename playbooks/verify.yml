@@ -1,0 +1,42 @@
+---
+# Read-only. Proves the control VM can reach these hosts as the management account
+# with working sudo. Safe to schedule daily.
+- name: Verify control VM can manage these hosts
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: SSH connectivity
+      ansible.builtin.ping:
+
+    - name: Who are we
+      ansible.builtin.command: id -un
+      register: login_user
+      changed_when: false
+
+    - name: Escalate
+      ansible.builtin.command: id -un
+      become: true
+      register: root_user
+      changed_when: false
+
+    - name: Assert sudo reaches root
+      ansible.builtin.assert:
+        that: root_user.stdout | trim == 'root'
+        fail_msg: "Logged in as {{ login_user.stdout | trim }} but sudo failed."
+        success_msg: "{{ login_user.stdout | trim }} -> root OK"
+
+    # Falls back to mgmt_user from group_vars, so this check is ON by default.
+    # Without it the play passes while connected via leftover bootstrap
+    # credentials — i.e. against a host that was never actually onboarded.
+    - name: Assert we are the management account, not a bootstrap login
+      vars:
+        _expected: "{{ expected_mgmt_user | default(mgmt_user | default('')) }}"
+      ansible.builtin.assert:
+        that: login_user.stdout | trim == _expected
+        fail_msg: >-
+          Connected as '{{ login_user.stdout | trim }}' but expected
+          '{{ _expected }}'. This host is still being reached with bootstrap
+          credentials — run onboard.yml against it.
+        success_msg: "Connected as {{ _expected }}"
+      when: _expected | length > 0

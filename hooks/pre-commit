@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Blocks commits containing SSH/TLS private key material.
+#
+# .gitignore matches on FILENAMES, and a private key can be named anything.
+# This hook inspects the CONTENT of every staged file instead, so it catches
+# a key no matter what it is called.
+#
+# Install (per clone — git does not sync hooks):
+#   cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Bypass in a genuine false positive:  git commit --no-verify
+# =============================================================================
+set -uo pipefail
+
+# Header lines that only ever appear in PRIVATE key material.
+# Note: "BEGIN PUBLIC KEY" and "ssh-ed25519 AAAA..." are deliberately absent —
+# public keys are safe and expected in this repo.
+PATTERN='-----BEGIN (OPENSSH|RSA|DSA|EC|PGP|ENCRYPTED)? ?PRIVATE KEY-----'
+
+failed=0
+
+# --diff-filter=d skips deletions. -z/-0 handles spaces in filenames.
+while IFS= read -r -d '' file; do
+    # Read the STAGED blob, not the working-tree copy — they can differ.
+    # `-e` is REQUIRED: the pattern starts with "-----", which grep would
+    # otherwise parse as command-line options. Without it grep errors out,
+    # the test silently returns false, and the hook fails OPEN — letting
+    # every private key straight through. Do not remove it.
+    if git show ":$file" 2>/dev/null | grep -qE -e "$PATTERN"; then
+        echo "  BLOCKED: $file contains private key material"
+        failed=1
+    fi
+done < <(git diff --cached --name-only -z --diff-filter=d)
+
+if [ "$failed" -ne 0 ]; then
+    cat <<'EOF'
+
+=============================================================================
+COMMIT REJECTED — private key material detected in staged files.
+
+This repository installs SSH access across client fleets. A private key
+committed here is a breach affecting every client at once.
+
+  - Private keys belong in the Semaphore key store, nowhere else.
+  - Only the .pub half belongs in group_vars/.
+
+If this is genuinely a false positive:  git commit --no-verify
+=============================================================================
+EOF
+    exit 1
+fi
+
+exit 0

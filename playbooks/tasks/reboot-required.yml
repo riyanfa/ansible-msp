@@ -1,0 +1,21 @@
+---
+# Sets `reboot_required` (bool) on Debian and RedHat families.
+- name: Reboot flag file (Debian)
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: _deb_reboot
+  when: ansible_facts['os_family'] == 'Debian'
+
+# needs-restarting ships in dnf-utils and may be absent; rc 1 = reboot needed.
+- name: Check needs-restarting (RedHat)
+  ansible.builtin.command: needs-restarting -r
+  register: _rh_reboot
+  changed_when: false
+  failed_when: false
+  when: ansible_facts['os_family'] == 'RedHat'
+
+- name: Set reboot_required
+  ansible.builtin.set_fact:
+    reboot_required: >-
+      {{ (_deb_reboot.stat.exists | default(false))
+         or (_rh_reboot.rc | default(0) == 1) }}

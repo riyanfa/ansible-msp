@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync ansible repo every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

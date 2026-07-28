@@ -1,0 +1,15 @@
+# Pulls the central repo onto this control VM. Paired with repo-sync.timer.
+# Install (as the user that runs ansible, NOT root):
+#   mkdir -p ~/.config/systemd/user
+#   cp control/repo-sync.* ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now repo-sync.timer
+#   loginctl enable-linger $USER      # timers run without an open session
+[Unit]
+Description=Sync ansible repo from central git (stable branch)
+
+[Service]
+Type=oneshot
+# --ff-only: refuses rewritten history instead of silently resetting.
+# A control VM must never have local edits; if this fails, the VM has drifted.
+ExecStart=/usr/bin/git -C %h/ansible-msp pull --ff-only origin stable

@@ -1,0 +1,71 @@
+---
+# Creates the management account, installs this customer's key restricted to
+# their control VM's IP, grants sudo, then moves the host from onboarding.ini
+# to managed.ini. Idempotent.
+#
+#   ansible-playbook -i customers/<name>/onboarding.ini playbooks/onboard.yml
+- name: Onboard customer host
+  hosts: new_hosts
+  become: true
+
+  tasks:
+    - name: Check required variables are present
+      vars:
+        _missing: >-
+          {{ ['customer_name', 'mgmt_user', 'mgmt_authorized_keys', 'control_node_ips']
+             | difference(hostvars[inventory_hostname] | list) }}
+      ansible.builtin.assert:
+        that: _missing | length == 0
+        fail_msg: >-
+          Missing: {{ _missing | join(', ') }}.
+          Copy group_vars/all.example.yml to group_vars/all.yml in this
+          customer's folder and fill it in.
+
+    - name: Create management group
+      ansible.builtin.group:
+        name: "{{ mgmt_user }}"
+
+    - name: Create management user
+      ansible.builtin.user:
+        name: "{{ mgmt_user }}"
+        group: "{{ mgmt_user }}"
+        shell: /bin/bash
+        create_home: true
+        password_lock: true
+
+    - name: Create .ssh directory
+      ansible.builtin.file:
+        path: "/home/{{ mgmt_user }}/.ssh"
+        state: directory
+        owner: "{{ mgmt_user }}"
+        group: "{{ mgmt_user }}"
+        mode: "0700"
+
+    - name: Install key restricted to the control VM
+      ansible.builtin.template:
+        src: templates/authorized_keys.j2
+        dest: "/home/{{ mgmt_user }}/.ssh/authorized_keys"
+        owner: "{{ mgmt_user }}"
+        group: "{{ mgmt_user }}"
+        mode: "0600"
+
+    # validate: runs visudo before install, so a bad file can never break sudo.
+    # `| bool` is required — "false" as a string is truthy in Jinja.
+    - name: Grant sudo
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/60-{{ mgmt_user }}"
+        content: |
+          {{ mgmt_user }} ALL=(ALL) {{ 'NOPASSWD:ALL' if mgmt_sudo_nopasswd | default(true) | bool else 'ALL' }}
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    - name: Add host to managed.ini
+      ansible.builtin.lineinfile:
+        path: "{{ inventory_dir }}/managed.ini"
+        line: "{{ inventory_hostname }}"
+        insertafter: '^\[managed\]'
+        state: present
+      delegate_to: localhost
+      become: false

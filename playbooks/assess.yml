@@ -1,0 +1,44 @@
+---
+# Read-only. Reports pending updates and whether a reboot is outstanding.
+# Changes nothing — safe to schedule daily.
+#
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/assess.yml
+- name: Check for pending updates
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Refresh package metadata (Debian)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_facts['os_family'] == 'Debian'
+      changed_when: false
+
+    # noqa command-instead-of-module: the apt module can only tell us whether
+    # updates exist, not how many — and a count is the point of this report.
+    - name: Count upgradable packages (Debian)  # noqa: command-instead-of-module
+      ansible.builtin.shell:
+        cmd: set -o pipefail && apt-get --simulate upgrade | grep -c '^Inst ' || true
+        executable: /bin/bash
+      when: ansible_facts['os_family'] == 'Debian'
+      register: deb_count
+      changed_when: false
+
+    - name: List upgradable packages (RedHat)
+      ansible.builtin.command: dnf --quiet check-update
+      when: ansible_facts['os_family'] == 'RedHat'
+      register: rh_check
+      changed_when: false
+      failed_when: rh_check.rc not in [0, 100]
+
+    - name: Check for outstanding reboot
+      ansible.builtin.include_tasks: tasks/reboot-required.yml
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} ({{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_major_version'] }}):
+          {{ deb_count.stdout | default(rh_check.stdout_lines | default([]) | select('match', '^\\S+\\s+\\S+\\s+\\S+$') | list | length) }}
+          updates pending, reboot_required={{ reboot_required }}
