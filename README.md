@@ -1,98 +1,65 @@
-# Customer patching
+# ansible-msp
 
-One control VM per customer on our premises, holding that customer's VPN/bastion
-config, SSH key, and inventory. This **public repo carries only the workflow** —
-customer data lives on each control VM's disk and is never committed anywhere.
+Onboard customer Linux VMs into managed patching, then keep them patched.
+Built for an MSP running **one control VM per customer**.
 
-```
-On the control VM:
-~/ansible-msp/               this repo, auto-pulled (main branch)
-  playbooks/
-    onboard.yml     set up a new host (account + restricted key + sudo)
-    verify.yml      prove the control VM can manage the hosts (read-only)
-    assess.yml      report pending updates + reboots (read-only, run daily)
-    patch.yml       apply updates, ringed, optional reboot
-  customers/clientA/         EXAMPLE files only — templates for the real thing
-  control/setup.sh           one-command control VM setup
+Turns whatever credential a customer hands over (root password, cloud key, `.pem`)
+into a standard, isolated management identity — a password-locked `svc_ansible`
+account with an SSH key restricted to your control VM's IP — then patches on that
+identity.
 
-~/customers/<name>/          REAL data — local only, outside the clone
-  onboarding.ini    hosts not yet set up — bootstrap creds
-  managed.ini       hosts under management
-  group_vars/all.yml
-```
+> This repo holds **workflow only**. Customer inventories, variables and keys live
+> on each control VM's disk and are never committed here.
 
-**Back up `~/customers/` on every control VM.** It is the only copy of what
-you manage for that customer — no git history, no remote. A nightly tar to
-your admin node is the minimum.
-
-## New customer
-
-Boot a VM, configure its VPN/bastion access to the customer, then:
+## Quick start
 
 ```bash
 git clone https://github.com/riyanfa/ansible-msp ~/ansible-msp
 ~/ansible-msp/control/setup.sh clientB https://github.com/riyanfa/ansible-msp
 ```
 
-`setup.sh` installs ansible, creates `~/customers/clientB/` from the example
-files, generates the key, and enables auto-pull. It prints exactly what to
-fill into `all.yml` (public key + this VM's egress IP).
-
-## New host
-
-Add to `~/customers/clientB/onboarding.ini` with the creds the customer gave
-you (`chmod 600` any key first):
-
-```ini
-[new_hosts]
-10.0.0.5 ansible_user=root ansible_ssh_private_key_file=~/.ssh/bootstrap/vm1.pem
-```
-
-Then from `~/ansible-msp`:
+Fill in `~/customers/clientB/group_vars/all.yml`, add a host to `onboarding.ini`, then:
 
 ```bash
-ansible-playbook -i ~/customers/clientB/onboarding.ini playbooks/onboard.yml --check --diff
+cd ~/ansible-msp
 ansible-playbook -i ~/customers/clientB/onboarding.ini playbooks/onboard.yml
 ansible-playbook -i ~/customers/clientB/managed.ini    playbooks/verify.yml
 ```
 
-On success the host is appended to `managed.ini` automatically — delete it
-from `onboarding.ini` and `shred -u` the bootstrap key.
+## Playbooks
 
-## Patching
+| | |
+|---|---|
+| `onboard.yml` | create the management account, install the restricted key, grant sudo |
+| `verify.yml` | prove SSH + sudo work (read-only, schedulable) |
+| `assess.yml` | report pending updates and outstanding reboots (read-only) |
+| `patch.yml` | apply updates, batched, optional reboot |
 
-```bash
-ansible-playbook -i ~/customers/clientB/managed.ini playbooks/assess.yml   # daily, safe
-ansible-playbook -i ~/customers/clientB/managed.ini playbooks/patch.yml    # in their window
+All idempotent. `ansible.builtin` only — no collections to install.
+
+## Layout
+
+```
+playbooks/      the four playbooks + shared tasks/templates
+control/        setup.sh and the repo-sync systemd timer
+customers/      EXAMPLE files only (real data lives on the control VM)
+docs/           full documentation
 ```
 
-patch.yml options: `-e reboot_if_required=true`, `-e update_batch=1` (serial),
-`-e security_only=true` (RHEL only).
+## Documentation
 
-## Workflow updates → control VMs
+**[docs/DOCUMENTATION.md](docs/DOCUMENTATION.md)** — architecture, setup, variables,
+verification, troubleshooting.
 
-Control VMs auto-pull **main** every 30 min (`control/repo-sync.*`). There is
-no staging branch: **whatever lands on main reaches every control VM within
-half an hour.** Test with `--check --diff` against one customer before pushing.
+## Notes
 
-⚠️ **This repo is public and control VMs execute what they pull as root on
-customer fleets.** That makes repo security operational security:
+- Control VMs auto-pull `main` every 30 minutes. **A push is live everywhere within
+  half an hour** — test with `--check --diff` first.
+- This repo is public and control VMs execute it as root on customer fleets. Protect
+  `main`, require 2FA, review every external PR.
+- Install the commit hook once per clone (git does not sync hooks):
+  `cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit`
 
-- Protect `main`: no force pushes, no direct pushes from others.
-- 2FA on every account with write access. Never merge external PRs
-  without reading every line of the diff.
-- Control VMs pull anonymously (public repo needs no key) and never push.
-- `--ff-only` in the sync means rewritten history is refused, not applied.
-- Never edit anything on a control VM — a failing sync timer means drift;
-  reset the clone, don't fix it.
+## License
 
-## Rules
-
-- Connection quirks (VPN routes, ProxyJump, DNS) live in the control VM or in
-  that customer's `group_vars/all.yml` — never in playbooks. The repo stays
-  identical on every control VM.
-- `authorized_keys` is fully managed: removing a key from `mgmt_authorized_keys`
-  removes it from every host on the next run.
-- The key is IP-locked (`from=`). If a control VM's IP changes, re-run onboard
-  playbook key task before anything else.
-- Commit hook (per clone): `cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit`
+MIT
