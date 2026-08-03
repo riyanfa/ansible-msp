@@ -42,7 +42,7 @@ COMMIT REJECTED — private key material detected in staged files.
 This repository installs SSH access across client fleets. A private key
 committed here is a breach affecting every client at once.
 
-  - Private keys belong in the Semaphore key store, nowhere else.
+  - Private keys belong on the control VM only (~/.ssh), never in git.
   - Only the .pub half belongs in group_vars/.
 
 If this is genuinely a false positive:  git commit --no-verify

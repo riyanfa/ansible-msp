@@ -5,14 +5,31 @@
 #   ansible-playbook -i customers/<name>/managed.ini playbooks/patch.yml -e reboot_if_required=true
 #   ansible-playbook -i customers/<name>/managed.ini playbooks/patch.yml -e update_batch=1
 #
+#   ansible-playbook ... -e max_fail=20        # tolerate 20% failures per batch
+#
 # update_batch: how many hosts at once. 1 = one at a time (safest for a
 # cluster), '100%' = all at once. Default 50%.
+#
+# max_fail_percentage: if more than this % of a batch fails, the whole play
+# STOPS — later batches are never attempted. Default 0 = halt on the first
+# failed host. This is what stops a bad update marching through the fleet.
 - name: Update system packages
   hosts: all
   become: true
   serial: "{{ update_batch | default('50%') }}"
+  max_fail_percentage: "{{ max_fail | default(0) }}"
 
   tasks:
+    # Runs BEFORE the upgrade on purpose. `autoremove` on the upgrade task
+    # below only fires afterwards — too late if /boot is already full, which
+    # is the most common Debian patch failure (old kernels accumulate and the
+    # new kernel cannot be written). This clears them first.
+    - name: Free space before upgrading (Debian)
+      ansible.builtin.apt:
+        autoremove: true
+        autoclean: true
+      when: ansible_facts['os_family'] == 'Debian'
+
     - name: Upgrade all packages (Debian)
       ansible.builtin.apt:
         upgrade: dist

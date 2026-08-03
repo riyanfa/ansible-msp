@@ -1,0 +1,62 @@
+---
+# Removes our management access from a customer's hosts. Run when a customer
+# leaves, or when decommissioning a host you no longer manage.
+#
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/offboard.yml --check --diff
+#   ansible-playbook -i customers/<name>/managed.ini playbooks/offboard.yml -e confirm_offboard=client-b
+#
+# DESTRUCTIVE. Requires an explicit confirmation matching the customer, so a
+# mistyped inventory cannot silently strip access from the wrong fleet.
+# After this runs you can no longer reach these hosts — do it last.
+- name: Offboard customer hosts
+  hosts: all
+  become: true
+  vars:
+    # Both sides are slugified so the confirmation is a single token.
+    # `-e confirm_offboard=Client A` would NOT work: Ansible splits key=value
+    # on whitespace, so only "Client" would arrive.
+    _expected_confirm: "{{ customer_name | default('') | lower | regex_replace('[^a-z0-9]+', '-') | trim('-') }}"
+    _given_confirm: "{{ confirm_offboard | default('') | lower | regex_replace('[^a-z0-9]+', '-') | trim('-') }}"
+
+  tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that:
+          - _expected_confirm | length > 0
+          - _given_confirm == _expected_confirm
+        fail_msg: >-
+          Refusing to run. Re-run with -e confirm_offboard={{ _expected_confirm | default('<customer>') }}
+          to confirm you are removing access from this customer's hosts.
+        success_msg: "Confirmed — offboarding {{ customer_name }}"
+
+    - name: Remove sudo access
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/60-{{ mgmt_user }}"
+        state: absent
+
+    # Removes the account and its home directory, and with it authorized_keys.
+    - name: Remove the management account
+      ansible.builtin.user:
+        name: "{{ mgmt_user }}"
+        state: absent
+        remove: true
+        force: true
+
+    - name: Remove the management group
+      ansible.builtin.group:
+        name: "{{ mgmt_user }}"
+        state: absent
+
+    # rc 0 would mean the account still resolves — treat that as a failure.
+    - name: Confirm the account is gone
+      ansible.builtin.command: "id -u {{ mgmt_user }}"
+      register: offboard_check
+      changed_when: false
+      failed_when: offboard_check.rc == 0
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: {{ mgmt_user }} removed. Now delete this host
+          from managed.ini, and once the whole fleet is done shred the key on
+          the control VM.
