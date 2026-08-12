@@ -14,17 +14,27 @@ identity.
 ## Quick start
 
 ```bash
-git clone https://github.com/riyanfa/ansible-msp ~/ansible-msp
-~/ansible-msp/control/setup.sh clientB https://github.com/riyanfa/ansible-msp
-```
-
-Fill in `~/customers/clientB/group_vars/all.yml`, add a host to `onboarding.ini`, then:
-
-```bash
+# prepare the VM: ansible, git, sshpass, auto-pull timer
+git clone https://gitlab.com/riyanalhumaidhi/ansible-msp ~/ansible-msp
+~/ansible-msp/control/setup.sh clientb https://gitlab.com/riyanalhumaidhi/ansible-msp
 cd ~/ansible-msp
-ansible-playbook -i ~/customers/clientB/onboarding.ini playbooks/onboard.yml
-ansible-playbook -i ~/customers/clientB/managed.ini    playbooks/verify.yml
+
+# new customer: generates the key pair, group_vars, inventories
+./new-customer.sh clientb "Client B" <this-VM's-egress-IP>
+
+# add a host — no inventory editing
+./add-host.sh clientb 192.168.1.50 root ~/.ssh/their-bootstrap-key.pem
+./add-host.sh clientb 192.168.1.51 root          # no key: prompts for password (needs sshpass)
+
+# confirm it worked
+ansible-playbook -i customers/clientb/managed.ini playbooks/verify.yml
 ```
+
+Find the egress IP with `ssh <a-host> 'echo $SSH_CLIENT'` — first field. It goes
+into the `from=` restriction on every key, so a wrong value locks you out of the
+whole fleet.
+
+Both scripts are idempotent and never overwrite an existing key or `all.yml`.
 
 ## Playbooks
 
@@ -33,18 +43,28 @@ ansible-playbook -i ~/customers/clientB/managed.ini    playbooks/verify.yml
 | `onboard.yml` | create the management account, install the restricted key, grant sudo |
 | `verify.yml` | prove SSH + sudo work (read-only, schedulable) |
 | `assess.yml` | report pending updates and outstanding reboots (read-only) |
-| `patch.yml` | apply updates, batched, optional reboot |
+| `patch.yml` | apply updates, batched, halts on failure, optional reboot |
+| `offboard.yml` | remove our access when a customer leaves |
 
 All idempotent. `ansible.builtin` only — no collections to install.
+
+`assess.yml` also writes a JSON record per host to `~/assess-reports/` on the
+control VM — collect those to build patch-compliance reporting.
 
 ## Layout
 
 ```
-playbooks/      the four playbooks + shared tasks/templates
-control/        setup.sh and the repo-sync systemd timer
-customers/      EXAMPLE files only (real data lives on the control VM)
-docs/           full documentation
+new-customer.sh   scaffold a customer: key pair, group_vars, inventories
+add-host.sh       onboard one host — no inventory editing
+playbooks/        the five playbooks + shared tasks/templates
+control/          setup.sh and the repo-sync systemd timer
+customers/        EXAMPLE files only
+docs/             full documentation
 ```
+
+Real customer data lives in `~/customers/` on the control VM, **outside this
+clone** — this repo is public and a `git pull` must never touch it. Override
+the location with `MSP_DATA_ROOT`.
 
 ## Documentation
 

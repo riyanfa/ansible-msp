@@ -5,7 +5,7 @@
 #
 #   ansible-playbook -i customers/<name>/onboarding.ini playbooks/onboard.yml
 - name: Onboard customer host
-  hosts: new_hosts
+  hosts: "{{ target_hosts | default('new_hosts') }}"
   become: true
 
   tasks:
@@ -63,7 +63,9 @@
 
     - name: Add host to managed.ini
       ansible.builtin.lineinfile:
-        path: "{{ inventory_dir }}/managed.ini"
+        # inventory_dir is None when the host comes from an inline -i,
+        # so allow an explicit override (see add-host.sh).
+        path: "{{ managed_inventory | default(inventory_dir ~ '/managed.ini') }}"
         line: "{{ inventory_hostname }}"
         insertafter: '^\[managed\]'
         state: present

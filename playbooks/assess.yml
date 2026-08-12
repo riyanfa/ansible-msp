@@ -1,11 +1,18 @@
 ---
 # Read-only. Reports pending updates and whether a reboot is outstanding.
-# Changes nothing — safe to schedule daily.
+# Changes nothing on the target — safe to schedule daily.
 #
 #   ansible-playbook -i customers/<name>/managed.ini playbooks/assess.yml
+#
+# Writes one JSON file per run to the control VM (report_dir), so results can be
+# collected and reported on. Ansible keeps no state; this is that state.
 - name: Check for pending updates
   hosts: all
   become: true
+  vars:
+    report_dir: "~/assess-reports"
+    # filesystem-safe customer id for report filenames
+    customer_slug: "{{ customer_name | default('unknown') | lower | regex_replace('[^a-z0-9]+', '-') | trim('-') }}"
 
   tasks:
     - name: Refresh package metadata (Debian)
@@ -15,8 +22,8 @@
       when: ansible_facts['os_family'] == 'Debian'
       changed_when: false
 
-    # noqa command-instead-of-module: the apt module can only tell us whether
-    # updates exist, not how many — and a count is the point of this report.
+    # noqa command-instead-of-module: the apt module reports whether updates
+    # exist, not how many — and the count is the point of this report.
     - name: Count upgradable packages (Debian)  # noqa: command-instead-of-module
       ansible.builtin.shell:
         cmd: set -o pipefail && apt-get --simulate upgrade | grep -c '^Inst ' || true
@@ -25,6 +32,7 @@
       register: deb_count
       changed_when: false
 
+    # rc 100 = "updates available" by dnf convention, not an error.
     - name: List upgradable packages (RedHat)
       ansible.builtin.command: dnf --quiet check-update
       when: ansible_facts['os_family'] == 'RedHat'
@@ -35,10 +43,41 @@
     - name: Check for outstanding reboot
       ansible.builtin.include_tasks: tasks/reboot-required.yml
 
-    - name: Report
+    - name: Build the result record
+      ansible.builtin.set_fact:
+        assess_result:
+          host: "{{ inventory_hostname }}"
+          customer: "{{ customer_name | default('unknown') }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          os: "{{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+          os_family: "{{ ansible_facts['os_family'] }}"
+          updates_pending: "{{ ((deb_count.stdout | default('0') | trim | int)
+            if ansible_facts['os_family'] == 'Debian'
+            else (rh_check.stdout_lines | default([])
+                  | select('match', '^\\S+\\s+\\S+\\s+\\S+$') | list | length)) | int }}"
+          reboot_required: "{{ reboot_required | bool }}"
+
+    - name: Show summary
       ansible.builtin.debug:
         msg: >-
-          {{ inventory_hostname }} ({{ ansible_facts['distribution'] }}
-          {{ ansible_facts['distribution_major_version'] }}):
-          {{ deb_count.stdout | default(rh_check.stdout_lines | default([]) | select('match', '^\\S+\\s+\\S+\\s+\\S+$') | list | length) }}
-          updates pending, reboot_required={{ reboot_required }}
+          {{ assess_result.host }} ({{ assess_result.os }}):
+          {{ assess_result.updates_pending }} updates pending,
+          reboot_required={{ assess_result.reboot_required }}
+
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ report_dir }}"
+        state: directory
+        mode: "0750"
+      delegate_to: localhost
+      become: false
+
+    # One file per host per run. Collect these to build compliance reporting.
+    - name: Write JSON report
+      ansible.builtin.copy:
+        # combine() casts the count to a real JSON number, not a quoted string
+        content: "{{ assess_result | combine({'updates_pending': assess_result.updates_pending | int}) | to_nice_json }}\n"
+        dest: "{{ report_dir }}/{{ customer_slug }}_{{ inventory_hostname }}_{{ ansible_date_time.date }}.json"
+        mode: "0640"
+      delegate_to: localhost
+      become: false
