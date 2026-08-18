@@ -27,6 +27,10 @@ KEY="$HOME/.ssh/${SLUG}_ansible"
 # Portable form for the committed all.yml — Ansible expands ~ per user,
 # so the file works on any control VM regardless of the login name.
 KEY_TILDE="~/.ssh/${SLUG}_ansible"
+# offboard.yml derives its confirmation token by slugifying customer_name —
+# which is NOT necessarily the folder slug ("Client B" -> client-b, not clientb).
+# Compute it the same way so the value printed below actually works.
+OFFBOARD_TOKEN="$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 
 echo "== 1/4 key pair =="
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
@@ -106,5 +110,6 @@ Customer '${SLUG}' ready.
   3. Back up ${DATA} and ${KEY} — they are the only copies.
      Nothing here is committed: this repo is public.
 
-  Offboard token for this customer: ${SLUG}
+  Offboard token for this customer: ${OFFBOARD_TOKEN}
+    (from customer_name, not the folder name — offboard.yml refuses anything else)
 EOF

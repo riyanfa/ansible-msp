@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Onboard one host without editing any inventory file.
 #
-#   ./add-host.sh <customer> <host> [login_user] [bootstrap_key] [-- extra args]
+#   ./add-host.sh <customer> <hosts> [login_user] [bootstrap_key] [-- extra args]
+#
+#   <hosts> is one host, a comma-separated list, or @file (one host per line).
+#   Onboarding many at once is ONE ansible run in parallel — far faster than
+#   looping this script per host.
 #
 #   ./add-host.sh clientB 192.168.1.50 root ~/.ssh/their-key.pem
+#   ./add-host.sh clientB 10.0.0.1,10.0.0.2,10.0.0.3 root ~/.ssh/k.pem
+#   ./add-host.sh clientB @hosts.txt root ~/.ssh/k.pem
 #   ./add-host.sh clientB 192.168.1.50 root              # no key -> prompts for password
 #   ./add-host.sh clientB 192.168.1.50 ubuntu ~/.ssh/k.pem -- --check --diff
 #
@@ -18,9 +24,21 @@ set -euo pipefail
 
 usage() { sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 1; }
 
+[ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] && usage
+
 CUSTOMER="${1:-}"; HOST="${2:-}"
 [ -z "$CUSTOMER" ] || [ -z "$HOST" ] && usage
 shift 2
+
+# @file -> comma list. Ignores blank lines and # comments so you can paste
+# a customer's host list straight in.
+if [ "${HOST#@}" != "$HOST" ]; then
+  LIST_FILE="${HOST#@}"
+  [ -f "$LIST_FILE" ] || { echo "ERROR: host list not found: $LIST_FILE"; exit 1; }
+  HOST=$(grep -vE '^\s*(#|$)' "$LIST_FILE" | tr -d ' \t' | paste -sd, -)
+  [ -n "$HOST" ] || { echo "ERROR: $LIST_FILE contains no hosts."; exit 1; }
+fi
+HOST_COUNT=$(printf '%s' "$HOST" | tr ',' '\n' | grep -c .)
 
 # Optional positionals, stopping at `--` so it is never mistaken for a value.
 LOGIN_USER="root"; BOOT_KEY=""
@@ -44,7 +62,10 @@ DATA="${DATA_ROOT}/${CUSTOMER}"
 # delegate's home directory, not the playbook's working directory.
 MANAGED_ABS="$(cd "$DATA" && pwd)/managed.ini"
 
-EXTRA=(-e "target_hosts=${HOST}"
+# One inline inventory entry per host; --limit keeps already-managed hosts
+# (present via managed.ini) out of the run.
+EXTRA=(--limit "${HOST}"
+       -e "target_hosts=all"
        -e "ansible_user=${LOGIN_USER}"
        -e "managed_inventory=${MANAGED_ABS}")
 
@@ -71,22 +92,27 @@ else
   echo "No key given — you will be prompted for ${LOGIN_USER}'s SSH password."
 fi
 
-echo "Onboarding ${HOST} for ${CUSTOMER} (login as ${LOGIN_USER})"
+echo "Onboarding ${HOST_COUNT} host(s) for ${CUSTOMER} (login as ${LOGIN_USER})"
 ansible-playbook -i "$DATA/managed.ini" -i "${HOST}," playbooks/onboard.yml \
   "${EXTRA[@]}" ${ASK[@]+"${ASK[@]}"} "$@"
 
 # ansible-playbook exits 0 even when no hosts matched, so verify the outcome
 # rather than trusting the exit code.
-if ! grep -qx "${HOST}" "$DATA/managed.ini"; then
+MISSING=""
+for h in $(printf '%s' "$HOST" | tr ',' ' '); do
+  grep -qx "$h" "$DATA/managed.ini" || MISSING="$MISSING $h"
+done
+if [ -n "$MISSING" ]; then
   echo
-  echo "WARNING: ${HOST} is not in ${DATA}/managed.ini — onboarding did not complete."
+  echo "WARNING: these hosts are NOT in ${DATA}/managed.ini — onboarding did not complete:"
+  echo "        $MISSING"
   echo "         (a --check run will also show this; otherwise scroll up for the failure)"
   exit 1
 fi
 
 cat <<EOF
 
-Added to ${DATA}/managed.ini. Next:
+Added ${HOST_COUNT} host(s) to ${DATA}/managed.ini. Next:
   ansible-playbook -i ${DATA}/managed.ini playbooks/verify.yml
   shred -u ${BOOT_KEY:-<bootstrap key>}
 EOF

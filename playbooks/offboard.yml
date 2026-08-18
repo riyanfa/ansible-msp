@@ -2,8 +2,8 @@
 # Removes our management access from a customer's hosts. Run when a customer
 # leaves, or when decommissioning a host you no longer manage.
 #
-#   ansible-playbook -i customers/<name>/managed.ini playbooks/offboard.yml --check --diff
-#   ansible-playbook -i customers/<name>/managed.ini playbooks/offboard.yml -e confirm_offboard=client-b
+#   ansible-playbook -i ~/customers/<name>/managed.ini playbooks/offboard.yml --check --diff
+#   ansible-playbook -i ~/customers/<name>/managed.ini playbooks/offboard.yml -e confirm_offboard=client-b
 #
 # DESTRUCTIVE. Requires an explicit confirmation matching the customer, so a
 # mistyped inventory cannot silently strip access from the wrong fleet.
@@ -28,6 +28,28 @@
           Refusing to run. Re-run with -e confirm_offboard={{ _expected_confirm | default('<customer>') }}
           to confirm you are removing access from this customer's hosts.
         success_msg: "Confirmed — offboarding {{ customer_name }}"
+
+    - name: Look up the account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ mgmt_user }}"
+        fail_key: false
+
+    # The next task deletes the account and its home directory. A typo in
+    # mgmt_user pointed at a real account would destroy it, so refuse anything
+    # that does not look like an account this tooling created.
+    # getent with fail_key=false yields {user: None} when absent, so a plain
+    # `is defined` test would pass for a missing account — check the value.
+    - name: Refuse to delete a system or root account
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.getent_passwd[mgmt_user][1] | int >= 1000
+          - ansible_facts.getent_passwd[mgmt_user][4] != '/root'
+        fail_msg: >-
+          '{{ mgmt_user }}' has uid {{ ansible_facts.getent_passwd[mgmt_user][1] }}
+          and home {{ ansible_facts.getent_passwd[mgmt_user][4] }} — that is not an
+          account this tooling created. Refusing to delete it.
+      when: ansible_facts.getent_passwd[mgmt_user]
 
     - name: Remove sudo access
       ansible.builtin.file:

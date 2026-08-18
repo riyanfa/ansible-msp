@@ -24,7 +24,7 @@ Then assess/patch run against that identity.
 
 ![topology](diagrams/topology.png)
 
-- **Public repo** — playbooks only, no customer data. Control VMs auto-pull `main` every 30 min.
+- **Public repo** — playbooks only, no customer data. Each control VM pulls when you tell it to.
 - **Control VM** — one per customer. Holds the only copy of that customer's key and inventory.
 - **Customer hosts** — reachable over SSH (VPN/bastion configured on the control VM, not here).
 
@@ -56,7 +56,9 @@ git clone https://gitlab.com/riyanalhumaidhi/ansible-msp ~/ansible-msp
 
 Installs `ansible`, `git` and `sshpass` (needed only for password-based
 onboarding — on RHEL it lives in EPEL, so the script warns rather than fails if
-it's unavailable), clones the repo, and enables the 30-min auto-pull timer.
+it's unavailable) and clones the repo. The VM does not update itself — pull
+when you choose, and pin a release with `git checkout <tag>` if a customer
+needs a specific version.
 
 `setup.sh` prepares the **machine**; `new-customer.sh` below adds the
 **customer**. They no longer overlap.
@@ -92,9 +94,27 @@ ansible-playbook -i ~/customers/clientb/managed.ini playbooks/verify.yml
 shred -u ~/.ssh/their-bootstrap-key.pem
 ```
 
-Arguments: `<customer> <host> [login_user] [bootstrap_key]`. The script fixes the
-key's permissions, passes the host inline (so **no inventory file is edited**),
-and appends it to `managed.ini` on success. Add `-- --check --diff` for a dry run.
+Arguments: `<customer> <hosts> [login_user] [bootstrap_key]`. The script fixes the
+key's permissions, passes the hosts inline (so **no inventory file is edited**),
+and appends them to `managed.ini` on success. Add `-- --check --diff` for a dry run.
+
+### Many hosts at once
+
+`<hosts>` also takes a comma-separated list, or `@file` with one host per line
+(blank lines and `#` comments ignored, so a customer's list pastes straight in):
+
+```bash
+./add-host.sh clientb 10.0.0.1,10.0.0.2,10.0.0.3 root ~/.ssh/their-key.pem
+./add-host.sh clientb @hosts.txt root ~/.ssh/their-key.pem
+```
+
+**Use this rather than looping the script.** One run onboards every host in
+parallel; a shell loop pays Ansible's ~0.4 s startup per host and is roughly
+5× slower for ten hosts. Hosts that are already in `managed.ini` are skipped,
+so re-running a list after fixing two failures is safe and costs nothing.
+
+Every host must share the same login user and bootstrap key — group them by
+credential and run one batch per group.
 
 **If the customer gave you a password instead of a key**, omit the 4th argument
 and you'll be prompted:
@@ -226,7 +246,7 @@ sudo visudo -c
 
 `verify.yml` should report `ok=5 changed=0` and `svc_ansible -> root OK`.
 
-Auto-pull on the control VM: `systemctl --user list-timers repo-sync.timer`
+Which version is this VM running: `git -C ~/ansible-msp describe --tags --always`
 
 ---
 
@@ -256,8 +276,10 @@ sudo grep svc_ansible /var/log/secure | tail          # RHEL
 ## Operating notes
 
 - **Back up `~/customers/` and `~/.ssh/*_ansible*`** on every control VM. Only copies.
-- **Every push to `main` is live everywhere in 30 min.** No staging branch — test with
-  `--check --diff` first.
+- **Nothing reaches a control VM until you pull it there.** A push to `main` changes
+  no customer until someone runs `git pull` on that VM. Pin a customer to a release
+  with `git checkout <tag>` when they need a fixed version; `git describe --tags
+  --always` says what a VM is running. Test with `--check --diff` first either way.
 - **Never edit repo files on a control VM.** Workflow changes go through git;
   drift = reset the clone. `~/customers/` is data, not code — edit it freely.
 - **Schedule `verify.yml` daily** — catches rebuilt hosts and broken `from=` restrictions.

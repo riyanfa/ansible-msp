@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare a control VM: packages, repo clone, auto-pull timer.
+# Prepare a control VM: packages and the repo clone.
 # Run as the ansible user, NOT root.
 #
 #   ./setup.sh <customer> <repo_url>
@@ -16,7 +16,7 @@ CUSTOMER="${1:-}"; REPO_URL="${2:-}"
 
 REPO_DIR="$HOME/ansible-msp"   # public workflow repo, pull-only
 
-echo "== 1/3 packages =="
+echo "== 1/2 packages =="
 # sshpass is only needed when a customer hands over a PASSWORD rather than a
 # key — Ansible shells out to it for --ask-pass. Installing it up front avoids
 # discovering it is missing mid-onboarding.
@@ -37,23 +37,24 @@ for b in ansible-playbook git ssh-keygen; do
   command -v "$b" >/dev/null || { echo "ERROR: $b missing after install."; exit 1; }
 done
 
-echo "== 2/3 repo (branch: main) =="
+echo "== 2/2 repo =="
 if [ -d "$REPO_DIR/.git" ]; then
-  git -C "$REPO_DIR" pull --ff-only origin main
+  # Deliberately does NOT pull. This VM may be pinned to a release for this
+  # customer, and re-running setup must never move it. Update by hand.
+  echo "  already cloned, left untouched: $(git -C "$REPO_DIR" describe --tags --always 2>/dev/null || echo unknown)"
 else
   git clone "$REPO_URL" "$REPO_DIR"
 fi
-echo "== 3/3 repo-sync timer =="
-mkdir -p "$HOME/.config/systemd/user"
-cp "$REPO_DIR/control/repo-sync.service" "$REPO_DIR/control/repo-sync.timer" \
-   "$HOME/.config/systemd/user/"
-systemctl --user daemon-reload
-systemctl --user enable --now repo-sync.timer
-loginctl enable-linger "$USER"
-
 cat <<EOF
 
-Control VM ready. Repo at $REPO_DIR, auto-pulling every 30 min.
+Control VM ready. Repo at $REPO_DIR.
+
+This VM does NOT update itself. Pull when you decide to, and pin a release if
+this customer needs a specific version:
+
+  git -C $REPO_DIR pull --ff-only origin main    # latest
+  git -C $REPO_DIR checkout v1.4.2               # pin a release
+  git -C $REPO_DIR describe --tags --always      # what is this VM running?
 
 Next — create the customer (generates the key pair and group_vars):
 

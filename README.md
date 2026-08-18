@@ -14,7 +14,7 @@ identity.
 ## Quick start
 
 ```bash
-# prepare the VM: ansible, git, sshpass, auto-pull timer
+# prepare the VM: ansible, git, sshpass, repo clone
 git clone https://gitlab.com/riyanalhumaidhi/ansible-msp ~/ansible-msp
 ~/ansible-msp/control/setup.sh clientb https://gitlab.com/riyanalhumaidhi/ansible-msp
 cd ~/ansible-msp
@@ -22,8 +22,10 @@ cd ~/ansible-msp
 # new customer: generates the key pair, group_vars, inventories
 ./new-customer.sh clientb "Client B" <this-VM's-egress-IP>
 
-# add a host — no inventory editing
+# add hosts — no inventory editing
 ./add-host.sh clientb 192.168.1.50 root ~/.ssh/their-bootstrap-key.pem
+./add-host.sh clientb 10.0.0.1,10.0.0.2,10.0.0.3 root ~/.ssh/their-bootstrap-key.pem
+./add-host.sh clientb @hosts.txt root ~/.ssh/their-bootstrap-key.pem   # one host per line
 ./add-host.sh clientb 192.168.1.51 root          # no key: prompts for password (needs sshpass)
 
 # confirm it worked
@@ -57,7 +59,7 @@ control VM — collect those to build patch-compliance reporting.
 new-customer.sh   scaffold a customer: key pair, group_vars, inventories
 add-host.sh       onboard one host — no inventory editing
 playbooks/        the five playbooks + shared tasks/templates
-control/          setup.sh and the repo-sync systemd timer
+control/          setup.sh — prepares a control VM
 customers/        EXAMPLE files only
 docs/             full documentation
 ```
@@ -73,12 +75,11 @@ verification, troubleshooting.
 
 ## Notes
 
-- Control VMs auto-pull `main` every 30 minutes. **A push is live everywhere within
-  half an hour** — test with `--check --diff` first.
+- Control VMs do **not** update themselves. Pull on the VM when you choose, and
+  pin a customer to a release with `git checkout <tag>` when they need a specific
+  version. Check with `git describe --tags --always`.
 - This repo is public and control VMs execute it as root on customer fleets. Protect
   `main`, require 2FA, review every external PR.
-- Install the commit hook once per clone (git does not sync hooks):
-  `cp hooks/pre-commit .git/hooks/ && chmod +x .git/hooks/pre-commit`
 
 ## License
 

@@ -1,4 +1,5 @@
-# Private keys — filenames only catch some; hooks/pre-commit checks contents.
+# Customer data lives in ~/customers on each control VM, never here — these
+# rules only guard against a stray file on a maintainer's workstation.
 id_*
 *_rsa
 *_ecdsa

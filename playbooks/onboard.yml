@@ -71,3 +71,7 @@
         state: present
       delegate_to: localhost
       become: false
+      # REQUIRED when onboarding several hosts at once: every host writes this
+      # same file on the control node, and concurrent lineinfile runs lose
+      # entries (measured: 22-26 of 30 hosts recorded without this).
+      throttle: 1
